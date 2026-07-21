@@ -1,12 +1,10 @@
-from flask import Flask, request
+from flask import Flask, request, render_template_string
 import telebot
 import os
 import json
 import random
 import requests
 from datetime import datetime
-import hashlib
-import base64
 import urllib.parse
 
 BOT_TOKEN = "8740382909:AAEA_Yl7tS9uVb4Gh2d9Eu7uufJ0hj0JMoA"
@@ -18,22 +16,213 @@ app = Flask(__name__)
 
 ALLOWED_GROUPS = set()
 BANNED_USERS = set()
-
-# Game data
 guess_games = {}
-quiz_data = [
-    {"q": "Thủ đô của Việt Nam?", "a": "Hà Nội", "opts": ["Hà Nội", "TP.HCM", "Đà Nẵng", "Hải Phòng"]},
-    {"q": "2 + 2 = ?", "a": "4", "opts": ["3", "4", "5", "6"]},
-    {"q": "Mặt trời mọc ở hướng nào?", "a": "Đông", "opts": ["Đông", "Tây", "Nam", "Bắc"]},
-]
+
+# ==================== HTML TEMPLATE ====================
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 Bot Telegram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border-radius: 30px;
+            padding: 50px 40px;
+            max-width: 600px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+            text-align: center;
+            animation: fadeIn 0.8s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .avatar {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 50px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+        h1 {
+            color: #fff;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            color: #a8b5d1;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+        .status {
+            display: inline-block;
+            background: rgba(0, 255, 136, 0.15);
+            color: #00ff88;
+            padding: 6px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 25px;
+            border: 1px solid rgba(0, 255, 136, 0.2);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 25px 0;
+        }
+        .stat-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px 10px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .stat-number {
+            color: #fff;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .stat-label {
+            color: #8899bb;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+        .commands {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 25px 0;
+            text-align: left;
+        }
+        .cmd {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #a8b5d1;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            transition: all 0.3s;
+        }
+        .cmd:hover {
+            background: rgba(102, 126, 234, 0.15);
+            border-color: #667eea;
+            color: #fff;
+        }
+        .cmd span {
+            color: #667eea;
+            font-weight: 600;
+        }
+        .footer {
+            color: #556688;
+            font-size: 12px;
+            margin-top: 25px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 20px;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .time-badge {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 16px;
+            border-radius: 12px;
+            color: #8899bb;
+            font-size: 13px;
+            display: inline-block;
+        }
+        @media (max-width: 480px) {
+            .card { padding: 30px 20px; }
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
+            .commands { grid-template-columns: 1fr; }
+            h1 { font-size: 22px; }
+            .avatar { width: 70px; height: 70px; font-size: 35px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="avatar">🤖</div>
+        <h1>✨ Bot Telegram</h1>
+        <p class="subtitle">🟢 Đang hoạt động 24/7 trên Vercel</p>
+        <div class="status">● ONLINE</div>
+        
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-number">{{ groups }}</div>
+                <div class="stat-label">Nhóm</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">{{ commands_count }}</div>
+                <div class="stat-label">Lệnh</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">{{ uptime }}</div>
+                <div class="stat-label">Uptime</div>
+            </div>
+        </div>
+
+        <div class="commands">
+            <div class="cmd"><span>/ping</span> 🏓 Kiểm tra</div>
+            <div class="cmd"><span>/help</span> 📋 Menu</div>
+            <div class="cmd"><span>/weather</span> 🌤️ Thời tiết</div>
+            <div class="cmd"><span>/time</span> 🕐 Giờ</div>
+            <div class="cmd"><span>/qr</span> 🔲 Mã QR</div>
+            <div class="cmd"><span>/guess</span> 🎯 Đoán số</div>
+            <div class="cmd"><span>/translate</span> 📝 Dịch</div>
+            <div class="cmd"><span>/money</span> 💱 Tỷ giá</div>
+            <div class="cmd"><span>/fact</span> 💡 Sự thật</div>
+            <div class="cmd"><span>/joke</span> 😂 Đùa</div>
+            <div class="cmd"><span>/quote</span> 📜 Danh ngôn</div>
+            <div class="cmd"><span>/menu</span> 🎛️ Buttons</div>
+        </div>
+
+        <div class="time-badge">📅 {{ current_time }}</div>
+        
+        <div class="footer">
+            Made with ❤️ • Telegram Bot • <a href="https://vercel.com" target="_blank">Vercel</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 # ==================== HELPERS ====================
 
 def is_admin(user_id):
     return user_id == ADMIN_ID
-
-def is_banned(user_id):
-    return user_id in BANNED_USERS
 
 def get_weather(city):
     try:
@@ -53,7 +242,6 @@ def get_weather(city):
         return None, "Lỗi kết nối API"
 
 def get_exchange_rate(from_currency, to_currency, amount):
-    """Lấy tỷ giá từ API miễn phí"""
     try:
         url = f"https://api.exchangerate-api.com/v4/latest/{from_currency.upper()}"
         r = requests.get(url, timeout=5)
@@ -63,23 +251,43 @@ def get_exchange_rate(from_currency, to_currency, amount):
         rate = data['rates'].get(to_currency.upper())
         if not rate:
             return None, f"Không hỗ trợ {to_currency.upper()}"
-        result = amount * rate
-        return result, None
+        return amount * rate, None
     except:
         return None, "Lỗi kết nối"
 
-# ==================== COMMANDS ====================
+# ==================== WEB ROUTE ====================
+
+@app.route('/', methods=['GET'])
+def home():
+    now = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
+    return render_template_string(
+        HTML_TEMPLATE,
+        groups=len(ALLOWED_GROUPS),
+        commands_count=14,
+        uptime="24/7",
+        current_time=now
+    )
+
+# ==================== WEBHOOK ====================
+
+@app.route('/', methods=['POST'])
+def webhook():
+    try:
+        update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
+        bot.process_new_updates([update])
+        return 'ok', 200
+    except Exception as e:
+        print(f"Lỗi: {e}")
+        return 'error', 500
+
+# ==================== BOT COMMANDS ====================
 
 @bot.message_handler(commands=['start', 'ping'])
 def ping(message):
-    if is_banned(message.from_user.id):
-        return bot.reply_to(message, "🚫 Bạn đã bị cấm")
-    bot.reply_to(message, "🏓 Pong! Bot đang hoạt động!")
+    bot.reply_to(message, "🏓 **Pong! Bot đang hoạt động!**", parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
 def help_command(message):
-    if is_banned(message.from_user.id):
-        return
     text = """🤖 **BOT CỦA BẠN - PHIÊN BẢN MỚI**
 
 📌 **LỆNH CƠ BẢN:**
@@ -96,6 +304,7 @@ def help_command(message):
 /guess - Chơi đoán số (1-100)
 /translate <text> - Dịch sang tiếng Việt
 /money <số> <từ> <đến> - Đổi tiền tệ
+/menu - Menu nút bấm
 /banana - Đùa vui 🍌
 
 👑 **ADMIN:**
@@ -106,15 +315,11 @@ def help_command(message):
 
 @bot.message_handler(commands=['time'])
 def get_time(message):
-    if is_banned(message.from_user.id):
-        return
     now = datetime.now()
     bot.reply_to(message, f"🕐 **{now.strftime('%H:%M:%S %d/%m/%Y')}**", parse_mode="Markdown")
 
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message):
-    if is_banned(message.from_user.id):
-        return
     args = message.text.split()
     city = ' '.join(args[1:]) if len(args) > 1 else 'Hanoi'
     weather, err = get_weather(city)
@@ -160,41 +365,28 @@ def quote(message):
     ]
     bot.reply_to(message, f"📜 {random.choice(quotes)}")
 
-# ==================== TÍNH NĂNG MỚI ====================
-
-# ----- 1. QR CODE -----
+# ----- QR CODE -----
 @bot.message_handler(commands=['qr'])
 def qr_code(message):
-    if is_banned(message.from_user.id):
-        return
     args = message.text.split()
     if len(args) < 2:
         return bot.reply_to(message, "⚠️ /qr <nội dung cần tạo mã>")
     content = ' '.join(args[1:])
     try:
-        # Sử dụng API tạo QR code
         url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(content)}"
-        bot.reply_to(message, f"🔲 **Mã QR của bạn:**\n{url}", parse_mode="Markdown")
-        # Gửi ảnh QR
-        bot.send_photo(message.chat.id, url, caption=f"📌 Nội dung: {content}")
+        bot.send_photo(message.chat.id, url, caption=f"🔲 **Mã QR:**\n{content}", parse_mode="Markdown")
     except Exception as e:
-        bot.reply_to(message, f"❌ Lỗi tạo QR: {e}")
+        bot.reply_to(message, f"❌ Lỗi: {e}")
 
-# ----- 2. GAME ĐOÁN SỐ -----
+# ----- GUESS GAME -----
 @bot.message_handler(commands=['guess'])
 def guess_game(message):
-    if is_banned(message.from_user.id):
-        return
     user_id = message.from_user.id
     if user_id in guess_games:
         return bot.reply_to(message, "⏳ Bạn đang chơi! Hãy đoán số từ 1-100")
     number = random.randint(1, 100)
-    guess_games[user_id] = {
-        'number': number,
-        'attempts': 0,
-        'max_attempts': 7
-    }
-    bot.reply_to(message, f"🎯 **ĐOÁN SỐ 1-100**\nBạn có 7 lần đoán. Bắt đầu!")
+    guess_games[user_id] = {'number': number, 'attempts': 0, 'max_attempts': 7}
+    bot.reply_to(message, "🎯 **ĐOÁN SỐ 1-100**\nBạn có 7 lần đoán. Bắt đầu!")
 
 @bot.message_handler(func=lambda message: message.from_user.id in guess_games and message.text and message.text.isdigit())
 def guess_handler(message):
@@ -213,17 +405,14 @@ def guess_handler(message):
     else:
         bot.reply_to(message, f"📉 Nhỏ hơn! Còn {game['max_attempts'] - game['attempts']} lượt")
 
-# ----- 3. DỊCH VĂN BẢN -----
+# ----- TRANSLATE -----
 @bot.message_handler(commands=['translate'])
 def translate_text(message):
-    if is_banned(message.from_user.id):
-        return
     args = message.text.split()
     if len(args) < 2:
         return bot.reply_to(message, "⚠️ /translate <văn bản cần dịch>")
     text = ' '.join(args[1:])
     try:
-        # Dịch sang tiếng Việt
         url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text)}&langpair=en|vi"
         r = requests.get(url, timeout=5)
         data = r.json()
@@ -235,11 +424,9 @@ def translate_text(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Lỗi: {e}")
 
-# ----- 4. ĐỔI TIỀN TỆ -----
+# ----- MONEY -----
 @bot.message_handler(commands=['money'])
 def exchange_money(message):
-    if is_banned(message.from_user.id):
-        return
     args = message.text.split()
     if len(args) != 4:
         return bot.reply_to(message, "⚠️ /money <số> <từ> <đến>\nVí dụ: /money 100 usd vnd")
@@ -256,7 +443,7 @@ def exchange_money(message):
     except:
         bot.reply_to(message, "❌ Lỗi")
 
-# ----- 5. TRÁI CÂY VUI (BANANA) -----
+# ----- BANANA -----
 @bot.message_handler(commands=['banana'])
 def banana(message):
     bananas = [
@@ -268,44 +455,9 @@ def banana(message):
     ]
     bot.reply_to(message, random.choice(bananas))
 
-# ==================== GROUP ID ====================
-
-@bot.message_handler(commands=['groupid'])
-def group_id(message):
-    if is_banned(message.from_user.id):
-        return
-    if message.chat.type in ['group', 'supergroup']:
-        bot.reply_to(message, f"🆔 **Group ID:** `{message.chat.id}`", parse_mode="Markdown")
-    else:
-        bot.reply_to(message, "⚠️ Lệnh này chỉ trong nhóm!")
-
-# ==================== ADMIN COMMANDS ====================
-
-@bot.message_handler(commands=['addgroup'])
-def add_group(message):
-    if not is_admin(message.from_user.id):
-        return bot.reply_to(message, "❌ Chỉ Admin!")
-    chat_id = str(message.chat.id)
-    ALLOWED_GROUPS.add(chat_id)
-    bot.reply_to(message, f"✅ Đã thêm nhóm `{chat_id}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['stats'])
-def stats(message):
-    if not is_admin(message.from_user.id):
-        return bot.reply_to(message, "❌ Chỉ Admin!")
-    text = f"""📊 **THỐNG KÊ**
-📌 Nhóm: {len(ALLOWED_GROUPS)}
-🚫 Bị cấm: {len(BANNED_USERS)}
-🎮 Đang chơi đoán số: {len(guess_games)}
-📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-# ==================== INLINE BUTTONS ====================
-
+# ----- MENU INLINE -----
 @bot.message_handler(commands=['menu'])
 def menu_inline(message):
-    if is_banned(message.from_user.id):
-        return
     from telebot import types
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     btn1 = types.InlineKeyboardButton("🌤️ Thời tiết", callback_data="weather")
@@ -337,12 +489,38 @@ def handle_callback(call):
         bot.send_message(chat_id, "📝 /translate <nội dung>")
     bot.answer_callback_query(call.id)
 
+# ----- GROUP ID -----
+@bot.message_handler(commands=['groupid'])
+def group_id(message):
+    if message.chat.type in ['group', 'supergroup']:
+        bot.reply_to(message, f"🆔 **Group ID:** `{message.chat.id}`", parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "⚠️ Lệnh này chỉ trong nhóm!")
+
+# ----- ADMIN -----
+@bot.message_handler(commands=['addgroup'])
+def add_group(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Chỉ Admin!")
+    chat_id = str(message.chat.id)
+    ALLOWED_GROUPS.add(chat_id)
+    bot.reply_to(message, f"✅ Đã thêm nhóm `{chat_id}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['stats'])
+def stats(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Chỉ Admin!")
+    text = f"""📊 **THỐNG KÊ**
+📌 Nhóm: {len(ALLOWED_GROUPS)}
+🚫 Bị cấm: {len(BANNED_USERS)}
+🎮 Đang chơi đoán số: {len(guess_games)}
+📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}"""
+    bot.reply_to(message, text, parse_mode="Markdown")
+
 # ==================== MESSAGE HANDLER ====================
 
 @bot.message_handler(func=lambda m: True)
 def echo(message):
-    if is_banned(message.from_user.id):
-        return
     if message.chat.type in ['group', 'supergroup']:
         if str(message.chat.id) not in ALLOWED_GROUPS:
             return
@@ -351,19 +529,7 @@ def echo(message):
     elif message.text and '?' in message.text:
         bot.reply_to(message, "🤔 Bạn cần giúp gì? Dùng /help nhé!")
 
-# ==================== WEBHOOK ====================
-
-@app.route('/', methods=['GET', 'POST'])
-def webhook():
-    if request.method == 'POST':
-        try:
-            update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
-            bot.process_new_updates([update])
-            return 'ok', 200
-        except Exception as e:
-            print(f"Lỗi: {e}")
-            return 'error', 500
-    return "🤖 Bot đang chạy!"
+# ==================== RUN ====================
 
 if __name__ == '__main__':
     app.run()
